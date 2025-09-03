@@ -13,7 +13,7 @@ interface Player {
 interface Team {
   id: number;
   player1_id: number;
-  player2_id: number;
+  player2_id: number | null;
   team_mmr: number;
   active_status: boolean;
 }
@@ -119,28 +119,43 @@ class TennisTinderDB {
     }
   }
 
-  async createTeam(player1Id: number, player2Id: number): Promise<number> {
+  async createTeam(player1Id: number, player2Id?: number): Promise<number> {
     const client = await this.pool.connect();
     try {
-      // Get both players to ensure they're in the same group and calculate team MMR
-      const playerResult = await client.query('SELECT id, mmr, group_name FROM players WHERE id = $1 OR id = $2', [player1Id, player2Id]);
-      const players = playerResult.rows;
+      // For singles matches, player2Id will be undefined/null
+      const isDoublesMatch = player2Id !== undefined && player2Id !== null;
       
-      const player1 = players.find(p => p.id === player1Id);
-      const player2 = players.find(p => p.id === player2Id);
+      if (isDoublesMatch) {
+        // Doubles match: get both players to ensure they're in the same group and calculate team MMR
+        const playerResult = await client.query('SELECT id, mmr, group_name FROM players WHERE id = $1 OR id = $2', [player1Id, player2Id]);
+        const players = playerResult.rows;
+        
+        const player1 = players.find(p => p.id === player1Id);
+        const player2 = players.find(p => p.id === player2Id);
 
-      if (!player1 || !player2) {
-        throw new Error('One or both players not found');
+        if (!player1 || !player2) {
+          throw new Error('One or both players not found');
+        }
+
+        if (player1.group_name !== player2.group_name) {
+          throw new Error('Players must be in the same group');
+        }
+
+        const teamMmr = Math.round((player1.mmr + player2.mmr) / 2);
+        const result = await client.query('INSERT INTO teams (player1_id, player2_id, team_mmr) VALUES ($1, $2, $3) RETURNING id', [player1Id, player2Id, teamMmr]);
+        return result.rows[0].id;
+      } else {
+        // Singles match: only get player1 and use their MMR as team MMR
+        const playerResult = await client.query('SELECT id, mmr, group_name FROM players WHERE id = $1', [player1Id]);
+        const player1 = playerResult.rows[0];
+
+        if (!player1) {
+          throw new Error('Player not found');
+        }
+
+        const result = await client.query('INSERT INTO teams (player1_id, player2_id, team_mmr) VALUES ($1, $2, $3) RETURNING id', [player1Id, null, player1.mmr]);
+        return result.rows[0].id;
       }
-
-      if (player1.group_name !== player2.group_name) {
-        throw new Error('Players must be in the same group');
-      }
-
-      const teamMmr = Math.round((player1.mmr + player2.mmr) / 2);
-
-      const result = await client.query('INSERT INTO teams (player1_id, player2_id, team_mmr) VALUES ($1, $2, $3) RETURNING id', [player1Id, player2Id, teamMmr]);
-      return result.rows[0].id;
     } finally {
       client.release();
     }
@@ -157,7 +172,7 @@ class TennisTinderDB {
           p2.name as player2_name
         FROM teams t
         JOIN players p1 ON t.player1_id = p1.id
-        JOIN players p2 ON t.player2_id = p2.id
+        LEFT JOIN players p2 ON t.player2_id = p2.id
         WHERE t.id = $1
       `, [teamId]);
       return result.rows[0];
@@ -209,9 +224,9 @@ class TennisTinderDB {
         JOIN teams t1 ON m.team1_id = t1.id
         JOIN teams t2 ON m.team2_id = t2.id
         JOIN players t1p1 ON t1.player1_id = t1p1.id
-        JOIN players t1p2 ON t1.player2_id = t1p2.id
+        LEFT JOIN players t1p2 ON t1.player2_id = t1p2.id
         JOIN players t2p1 ON t2.player1_id = t2p1.id
-        JOIN players t2p2 ON t2.player2_id = t2p2.id
+        LEFT JOIN players t2p2 ON t2.player2_id = t2p2.id
         ORDER BY m.date DESC
       `);
       return result.rows;

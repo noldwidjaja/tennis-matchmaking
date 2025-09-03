@@ -37,10 +37,9 @@ export async function POST(request: Request) {
     
     const mmrChange = calculateMMRChange(winnerMmr, loserMmr);
     
-    // Create temporary teams with single players (for database compatibility)
-    // We'll create "teams" with the same player twice, but we'll handle this specially
-    const tempTeam1Id = await db.createTeam(player1.id, player1.id); // Same player twice for singles
-    const tempTeam2Id = await db.createTeam(player2.id, player2.id); // Same player twice for singles
+    // Create temporary teams with single players (using NULL for player2_id)
+    const tempTeam1Id = await db.createTeam(player1.id); // Singles team - no second player
+    const tempTeam2Id = await db.createTeam(player2.id); // Singles team - no second player
     
     // Create match record
     const matchId = await db.createMatch(tempTeam1Id, tempTeam2Id);

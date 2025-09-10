@@ -85,7 +85,8 @@ export default function TeamBuilder({ onTeamCreated, refreshKey }: TeamBuilderPr
     return teamPlayer?.group === selectedGroup;
   });
 
-  const getPlayerName = (playerId: number) => {
+  const getPlayerName = (playerId: number | null) => {
+    if (playerId === null) return null;
     return players.find(p => p.id === playerId)?.name || 'Unknown';
   };
 
@@ -202,7 +203,12 @@ export default function TeamBuilder({ onTeamCreated, refreshKey }: TeamBuilderPr
               
               <div className="space-y-1">
                 <p className="text-sm text-gray-700">{getPlayerName(team.player1_id)}</p>
-                <p className="text-sm text-gray-700">{getPlayerName(team.player2_id)}</p>
+                {team.player2_id && (
+                  <p className="text-sm text-gray-700">{getPlayerName(team.player2_id)}</p>
+                )}
+                {!team.player2_id && (
+                  <p className="text-sm text-gray-500 italic">(Singles)</p>
+                )}
               </div>
               
               <div className="mt-3 pt-3 border-t border-gray-100">

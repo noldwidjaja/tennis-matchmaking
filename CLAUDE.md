@@ -233,3 +233,118 @@ const loserChange = Math.round(kFactor * (0 - (1 - expectedWinner)));
 - Mobile app conversion
 - Real-time match updates
 - Player profile management
+
+## Recent Development Changes (Session: 2025-09-11)
+
+### **Major Database Architecture Refactor**
+**Issue Resolved**: Eliminated "duplicate key value violates unique constraint" error that was preventing match recording.
+
+**Solution**: Migrated from team-based to player-based match recording system.
+
+#### **Database Schema Changes**
+
+1. **New Matches Table Structure**:
+   ```sql
+   CREATE TABLE matches (
+     id SERIAL PRIMARY KEY,
+     match_type VARCHAR(10) CHECK(match_type IN ('singles', 'doubles')) NOT NULL,
+     
+     -- Team 1 players
+     team1_player1_id INTEGER NOT NULL REFERENCES players(id),
+     team1_player2_id INTEGER REFERENCES players(id), -- NULL for singles
+     
+     -- Team 2 players  
+     team2_player1_id INTEGER NOT NULL REFERENCES players(id),
+     team2_player2_id INTEGER REFERENCES players(id), -- NULL for singles
+     
+     -- Match result
+     winner_team INTEGER CHECK(winner_team IN (1, 2)) NOT NULL,
+     mmr_change INTEGER NOT NULL DEFAULT 0,
+     date TIMESTAMP NOT NULL DEFAULT NOW(),
+     
+     -- Built-in constraints prevent duplicate players
+     CHECK (team1_player1_id != team2_player1_id),
+     CHECK (team1_player1_id != team2_player2_id),
+     CHECK (team1_player2_id != team2_player1_id OR team1_player2_id IS NULL),
+     CHECK (team1_player2_id != team2_player2_id OR team1_player2_id IS NULL),
+     CHECK (team1_player1_id != team1_player2_id OR team1_player2_id IS NULL),
+     CHECK (team2_player1_id != team2_player2_id OR team2_player2_id IS NULL)
+   );
+   ```
+
+2. **Teams Table Modification**:
+   ```sql
+   ALTER TABLE teams ALTER COLUMN player2_id DROP NOT NULL;
+   ```
+   - Allows NULL values for `player2_id` to support singles teams
+
+#### **Backend API Changes**
+
+1. **Updated Database Methods**:
+   - `createMatch()`: Now accepts players directly instead of team IDs
+   - `getAllMatches()`: Uses LEFT JOINs to handle NULL player2_id values
+   - `createTeam()`: Optional `player2Id` parameter for singles support
+
+2. **Match Recording Logic**:
+   - **Singles**: Records with `team1_player2_id = NULL` and `team2_player2_id = NULL`
+   - **Doubles**: Records all 4 player IDs
+   - **Validation**: Built-in database constraints prevent duplicate players
+   - **MMR Calculation**: Works directly from player MMRs
+
+#### **Frontend UI Refactor**
+
+1. **MatchRecorder Component Overhaul**:
+   - **Old**: Team selection dropdowns with pre-created teams
+   - **New**: Individual player selection for each position
+   
+2. **New State Management**:
+   ```typescript
+   // Old team-based state (removed)
+   const [selectedTeam1, setSelectedTeam1] = useState<number | null>(null);
+   const [selectedTeam2, setSelectedTeam2] = useState<number | null>(null);
+   
+   // New player-based state
+   const [team1Player1, setTeam1Player1] = useState<Player | null>(null);
+   const [team1Player2, setTeam1Player2] = useState<Player | null>(null);
+   const [team2Player1, setTeam2Player1] = useState<Player | null>(null);
+   const [team2Player2, setTeam2Player2] = useState<Player | null>(null);
+   ```
+
+3. **Enhanced UI Features**:
+   - **Smart Player Filtering**: Prevents selecting the same player multiple times
+   - **Dynamic Layout**: Shows/hides Player 2 dropdowns based on match type (singles vs doubles)
+   - **Group Filtering**: Respects selected group (A, B, All) for player options
+   - **Improved Text Visibility**: Fixed white-on-white text issue in dropdowns
+   - **Real-time Validation**: Immediate feedback for invalid player combinations
+
+4. **Match Preview & Winner Selection**:
+   - **Dynamic Display**: Shows player names based on match type
+   - **Team MMR Calculation**: Calculated on-the-fly from selected players
+   - **Winner Buttons**: Use team numbers (1, 2) instead of database IDs
+
+#### **Key Benefits Achieved**
+
+1. **Eliminated Constraint Errors**: No more duplicate key violations when recording matches
+2. **Simplified Architecture**: Direct player-to-match relationship removes team complexity
+3. **Better UX**: Intuitive player selection instead of confusing team dropdowns  
+4. **Improved Performance**: Fewer database operations (no team creation/management)
+5. **Enhanced Validation**: Built-in database constraints ensure data integrity
+6. **Singles Match Fix**: Proper handling prevents double-counting wins/losses
+
+#### **Backwards Compatibility**
+
+- **Random Match Generation**: Still works seamlessly with new system
+- **Match History**: Displays correctly with LEFT JOINs handling NULL values
+- **Player Statistics**: Unchanged, continues to track individual performance
+- **MMR Calculations**: Same ELO algorithm, just different data source
+
+#### **Testing Results**
+
+- ✅ **Singles Matches**: Record properly with single players per team
+- ✅ **Doubles Matches**: Record properly with player pairs
+- ✅ **Validation**: Database constraints prevent invalid player combinations  
+- ✅ **Match History**: Displays both singles and doubles matches correctly
+- ✅ **Performance**: No duplicate key errors, smooth match recording
+- ✅ **UI Responsiveness**: Fast player selection with real-time filtering
+
+**Migration Status**: ✅ **COMPLETE** - Production ready with full backwards compatibility

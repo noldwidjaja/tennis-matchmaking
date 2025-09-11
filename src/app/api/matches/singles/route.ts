@@ -37,14 +37,14 @@ export async function POST(request: Request) {
     
     const mmrChange = calculateMMRChange(winnerMmr, loserMmr);
     
-    // Create temporary teams with single players (using NULL for player2_id)
-    const tempTeam1Id = await db.createTeam(player1.id); // Singles team - no second player
-    const tempTeam2Id = await db.createTeam(player2.id); // Singles team - no second player
-    
-    // Create match record
-    const matchId = await db.createMatch(tempTeam1Id, tempTeam2Id);
-    const winnerTeamId = isPlayer1Winner ? tempTeam1Id : tempTeam2Id;
-    await db.recordMatchResult(matchId, winnerTeamId, mmrChange.winnerChange);
+    // Create match record directly with player references (singles)
+    const matchId = await db.createMatch(
+      'singles',
+      player1.id,
+      player2.id,
+      isPlayer1Winner ? 1 : 2,
+      mmrChange.winnerChange
+    );
     
     // Update player stats
     if (isPlayer1Winner) {
@@ -56,17 +56,6 @@ export async function POST(request: Request) {
       await db.updatePlayerStats(player2.id, mmrChange.winnerChange, true);
       await db.updatePlayerStats(player1.id, mmrChange.loserChange, false);
     }
-    
-    // Update team MMRs (though for singles, this is just the player's MMR)
-    const newPlayer1Mmr = isPlayer1Winner ? 
-      playerData1.mmr + mmrChange.winnerChange : 
-      playerData1.mmr + mmrChange.loserChange;
-    const newPlayer2Mmr = isPlayer1Winner ? 
-      playerData2.mmr + mmrChange.loserChange : 
-      playerData2.mmr + mmrChange.winnerChange;
-      
-    await db.updateTeamMmr(tempTeam1Id, newPlayer1Mmr);
-    await db.updateTeamMmr(tempTeam2Id, newPlayer2Mmr);
     
     return NextResponse.json({ 
       success: true, 

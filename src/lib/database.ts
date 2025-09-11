@@ -20,9 +20,12 @@ interface Team {
 
 interface Match {
   id: number;
-  team1_id: number;
-  team2_id: number;
-  winner_team_id: number | null;
+  match_type: 'singles' | 'doubles';
+  team1_player1_id: number;
+  team1_player2_id: number | null;
+  team2_player1_id: number;
+  team2_player2_id: number | null;
+  winner_team: 1 | 2;
   mmr_change: number;
   date: string;
 }
@@ -191,20 +194,32 @@ class TennisTinderDB {
   }
 
   // Match methods
-  async createMatch(team1Id: number, team2Id: number): Promise<number> {
+  async createMatch(
+    matchType: 'singles' | 'doubles',
+    team1Player1Id: number,
+    team2Player1Id: number,
+    winnerTeam: 1 | 2,
+    mmrChange: number,
+    team1Player2Id?: number | null,
+    team2Player2Id?: number | null
+  ): Promise<number> {
     const client = await this.pool.connect();
     try {
-      const result = await client.query('INSERT INTO matches (team1_id, team2_id) VALUES ($1, $2) RETURNING id', [team1Id, team2Id]);
+      const result = await client.query(`
+        INSERT INTO matches (
+          match_type, 
+          team1_player1_id, team1_player2_id, 
+          team2_player1_id, team2_player2_id, 
+          winner_team, mmr_change
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7) 
+        RETURNING id
+      `, [
+        matchType,
+        team1Player1Id, team1Player2Id || null,
+        team2Player1Id, team2Player2Id || null,
+        winnerTeam, mmrChange
+      ]);
       return result.rows[0].id;
-    } finally {
-      client.release();
-    }
-  }
-
-  async recordMatchResult(matchId: number, winnerTeamId: number, mmrChange: number): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('UPDATE matches SET winner_team_id = $1, mmr_change = $2 WHERE id = $3', [winnerTeamId, mmrChange, matchId]);
     } finally {
       client.release();
     }
@@ -221,12 +236,10 @@ class TennisTinderDB {
           t2p1.name as team2_player1,
           t2p2.name as team2_player2
         FROM matches m
-        JOIN teams t1 ON m.team1_id = t1.id
-        JOIN teams t2 ON m.team2_id = t2.id
-        JOIN players t1p1 ON t1.player1_id = t1p1.id
-        LEFT JOIN players t1p2 ON t1.player2_id = t1p2.id
-        JOIN players t2p1 ON t2.player1_id = t2p1.id
-        LEFT JOIN players t2p2 ON t2.player2_id = t2p2.id
+        JOIN players t1p1 ON m.team1_player1_id = t1p1.id
+        LEFT JOIN players t1p2 ON m.team1_player2_id = t1p2.id
+        JOIN players t2p1 ON m.team2_player1_id = t2p1.id
+        LEFT JOIN players t2p2 ON m.team2_player2_id = t2p2.id
         ORDER BY m.date DESC
       `);
       return result.rows;

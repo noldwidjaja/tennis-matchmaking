@@ -20,10 +20,15 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
   const [teams, setTeams] = useState<TeamWithPlayers[]>([]);
   const [matchType, setMatchType] = useState<'doubles' | 'singles'>('doubles');
   const [selectedGroup, setSelectedGroup] = useState<'A' | 'B' | 'ALL'>('A');
-  const [selectedTeam1, setSelectedTeam1] = useState<number | null>(null);
-  const [selectedTeam2, setSelectedTeam2] = useState<number | null>(null);
+  // Player selection states
+  const [team1Player1, setTeam1Player1] = useState<Player | null>(null);
+  const [team1Player2, setTeam1Player2] = useState<Player | null>(null);
+  const [team2Player1, setTeam2Player1] = useState<Player | null>(null);
+  const [team2Player2, setTeam2Player2] = useState<Player | null>(null);
   const [winnerTeam, setWinnerTeam] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  // Random match generation states
   const [randomTeam1, setRandomTeam1] = useState<{player1: Player, player2: Player, teamMMR: number} | null>(null);
   const [randomTeam2, setRandomTeam2] = useState<{player1: Player, player2: Player, teamMMR: number} | null>(null);
   const [randomPlayer1, setRandomPlayer1] = useState<Player | null>(null);
@@ -187,8 +192,10 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
     }
 
     setWinnerTeam(null);
-    setSelectedTeam1(null);
-    setSelectedTeam2(null);
+    setTeam1Player1(null);
+    setTeam1Player2(null);
+    setTeam2Player1(null);
+    setTeam2Player2(null);
 
     // Random teams generated successfully
   };
@@ -282,46 +289,109 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
       return;
     }
 
-    // Handle existing team selection logic
-    if (!selectedTeam1 || !selectedTeam2 || !winnerTeam) {
-      alert('Please select both teams and a winner');
-      return;
-    }
-
-    if (selectedTeam1 === selectedTeam2) {
-      alert('Please select two different teams');
-      return;
-    }
-
-    setLoading(true);
-    
-    try {
-      const response = await fetch('/api/matches', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          team1Id: selectedTeam1,
-          team2Id: selectedTeam2,
-          winnerTeamId: winnerTeam
-        })
-      });
-
-      if (response.ok) {
-        setSelectedTeam1(null);
-        setSelectedTeam2(null);
-        setWinnerTeam(null);
-        onMatchRecorded();
-      } else {
-        const error = await response.json();
-        alert(`Error recording match: ${error.error}`);
+    // Handle manual player selection
+    if (matchType === 'singles') {
+      // Singles: only need one player per team
+      if (!team1Player1 || !team2Player1 || !winnerTeam) {
+        alert('Please select both players and a winner');
+        return;
       }
-    } catch (error) {
-      console.error('Error recording match:', error);
-      alert('Error recording match');
-    } finally {
-      setLoading(false);
+      
+      if (team1Player1.id === team2Player1.id) {
+        alert('Please select two different players');
+        return;
+      }
+
+      setLoading(true);
+      
+      try {
+        const response = await fetch('/api/matches/singles', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            player1: team1Player1,
+            player2: team2Player1,
+            winner: winnerTeam
+          })
+        });
+
+        if (response.ok) {
+          // Reset player selections
+          setTeam1Player1(null);
+          setTeam2Player1(null);
+          setWinnerTeam(null);
+          onMatchRecorded();
+        } else {
+          const error = await response.json();
+          alert(`Error recording singles match: ${error.error}`);
+        }
+      } catch (error) {
+        console.error('Error recording singles match:', error);
+        alert('Error recording singles match');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Doubles: need two players per team
+      if (!team1Player1 || !team1Player2 || !team2Player1 || !team2Player2 || !winnerTeam) {
+        alert('Please select all players and a winner');
+        return;
+      }
+      
+      // Check for duplicate players
+      const allPlayerIds = [team1Player1.id, team1Player2.id, team2Player1.id, team2Player2.id];
+      const uniqueIds = new Set(allPlayerIds);
+      if (uniqueIds.size !== 4) {
+        alert('All players must be different');
+        return;
+      }
+
+      setLoading(true);
+      
+      try {
+        const team1MMR = Math.round((team1Player1.mmr + team1Player2.mmr) / 2);
+        const team2MMR = Math.round((team2Player1.mmr + team2Player2.mmr) / 2);
+        
+        const response = await fetch('/api/matches/random', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            team1: {
+              player1Id: team1Player1.id,
+              player2Id: team1Player2.id,
+              teamMMR: team1MMR
+            },
+            team2: {
+              player1Id: team2Player1.id,
+              player2Id: team2Player2.id,
+              teamMMR: team2MMR
+            },
+            winnerTeam: winnerTeam
+          })
+        });
+
+        if (response.ok) {
+          // Reset player selections
+          setTeam1Player1(null);
+          setTeam1Player2(null);
+          setTeam2Player1(null);
+          setTeam2Player2(null);
+          setWinnerTeam(null);
+          onMatchRecorded();
+        } else {
+          const error = await response.json();
+          alert(`Error recording match: ${error.error}`);
+        }
+      } catch (error) {
+        console.error('Error recording match:', error);
+        alert('Error recording match');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -362,15 +432,34 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
       return `${team.player1_name || 'Unknown'} & ${team.player2_name || 'Unknown'}`;
     }
   };
-  const team1 = selectedTeam1 ? getTeam(selectedTeam1) : null;
-  const team2 = selectedTeam2 ? getTeam(selectedTeam2) : null;
+  // Calculate team MMRs and stats based on player selection
+  const getTeam1MMR = () => {
+    if (matchType === 'singles' && team1Player1) {
+      return team1Player1.mmr;
+    } else if (matchType === 'doubles' && team1Player1 && team1Player2) {
+      return Math.round((team1Player1.mmr + team1Player2.mmr) / 2);
+    }
+    return null;
+  };
 
-  const matchStats = team1 && team2 ? {
-    competitiveness: calculateMatchCompetitiveness(team1.team_mmr, team2.team_mmr),
-    team1WinProb: calculateWinProbability(team1.team_mmr, team2.team_mmr),
+  const getTeam2MMR = () => {
+    if (matchType === 'singles' && team2Player1) {
+      return team2Player1.mmr;
+    } else if (matchType === 'doubles' && team2Player1 && team2Player2) {
+      return Math.round((team2Player1.mmr + team2Player2.mmr) / 2);
+    }
+    return null;
+  };
+
+  const team1MMR = getTeam1MMR();
+  const team2MMR = getTeam2MMR();
+
+  const matchStats = team1MMR && team2MMR ? {
+    competitiveness: calculateMatchCompetitiveness(team1MMR, team2MMR),
+    team1WinProb: calculateWinProbability(team1MMR, team2MMR),
     mmrPreview: calculateMMRChange(
-      winnerTeam === team1.id ? team1.team_mmr : team2.team_mmr,
-      winnerTeam === team1.id ? team2.team_mmr : team1.team_mmr
+      winnerTeam === 1 ? team1MMR : team2MMR,
+      winnerTeam === 1 ? team2MMR : team1MMR
     )
   } : null;
 
@@ -446,8 +535,10 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
                 key={group.id}
                 onClick={() => {
                   setSelectedGroup(group.id as 'A' | 'B' | 'ALL');
-                  setSelectedTeam1(null);
-                  setSelectedTeam2(null);
+                  setTeam1Player1(null);
+                  setTeam1Player2(null);
+                  setTeam2Player1(null);
+                  setTeam2Player2(null);
                   setWinnerTeam(null);
                   setRandomTeam1(null);
                   setRandomTeam2(null);
@@ -625,63 +716,180 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {/* Team 1 Selection */}
+          <div className="space-y-6 mb-6">
+            {/* Team 1 Players */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {matchType === 'singles' ? 'Player 1' : 'Team 1'}
-              </label>
-              <select
-                value={selectedTeam1 || ''}
-                onChange={(e) => {
-                  setSelectedTeam1(e.target.value ? Number(e.target.value) : null);
-                  setWinnerTeam(null);
-                }}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">{matchType === 'singles' ? 'Select Player 1' : 'Select Team 1'}</option>
-                {filteredTeams.map((team) => (
-                  <option key={team.id} value={team.id} disabled={team.id === selectedTeam2}>
-                    {getTeamDisplayName(team)} (MMR: {team.team_mmr})
-                  </option>
-                ))}
-              </select>
+              <h4 className="text-lg font-medium text-gray-900 mb-3">Team 1</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Player 1</label>
+                  <select
+                    value={team1Player1?.id || ''}
+                    onChange={(e) => {
+                      const playerId = e.target.value ? Number(e.target.value) : null;
+                      const player = playerId ? players.find(p => p.id === playerId) || null : null;
+                      setTeam1Player1(player);
+                      setWinnerTeam(null);
+                    }}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  >
+                    <option value="" className="text-gray-500">Select Player 1</option>
+                    {players
+                      .filter(player => {
+                        if (selectedGroup === 'ALL') return true;
+                        return player.group === selectedGroup;
+                      })
+                      .filter(player => {
+                        // Exclude players already selected in other positions
+                        const selectedIds = [
+                          team1Player2?.id,
+                          team2Player1?.id,
+                          team2Player2?.id
+                        ].filter(id => id !== undefined);
+                        return !selectedIds.includes(player.id);
+                      })
+                      .map((player) => (
+                        <option key={player.id} value={player.id} className="text-gray-900">
+                          {player.name} (MMR: {player.mmr})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                
+                {matchType === 'doubles' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Player 2</label>
+                    <select
+                      value={team1Player2?.id || ''}
+                      onChange={(e) => {
+                        const playerId = e.target.value ? Number(e.target.value) : null;
+                        const player = playerId ? players.find(p => p.id === playerId) || null : null;
+                        setTeam1Player2(player);
+                        setWinnerTeam(null);
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                    >
+                      <option value="" className="text-gray-500">Select Player 2</option>
+                      {players
+                        .filter(player => {
+                          if (selectedGroup === 'ALL') return true;
+                          return player.group === selectedGroup;
+                        })
+                        .filter(player => {
+                          // Exclude players already selected in other positions
+                          const selectedIds = [
+                            team1Player1?.id,
+                            team2Player1?.id,
+                            team2Player2?.id
+                          ].filter(id => id !== undefined);
+                          return !selectedIds.includes(player.id);
+                        })
+                        .map((player) => (
+                          <option key={player.id} value={player.id}>
+                            {player.name} (MMR: {player.mmr})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Team 2 Selection */}
+            {/* Team 2 Players */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {matchType === 'singles' ? 'Player 2' : 'Team 2'}
-              </label>
-              <select
-                value={selectedTeam2 || ''}
-                onChange={(e) => {
-                  setSelectedTeam2(e.target.value ? Number(e.target.value) : null);
-                  setWinnerTeam(null);
-                }}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">{matchType === 'singles' ? 'Select Player 2' : 'Select Team 2'}</option>
-                {filteredTeams.map((team) => (
-                  <option key={team.id} value={team.id} disabled={team.id === selectedTeam1}>
-                    {getTeamDisplayName(team)} (MMR: {team.team_mmr})
-                  </option>
-                ))}
-              </select>
+              <h4 className="text-lg font-medium text-gray-900 mb-3">Team 2</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Player 1</label>
+                  <select
+                    value={team2Player1?.id || ''}
+                    onChange={(e) => {
+                      const playerId = e.target.value ? Number(e.target.value) : null;
+                      const player = playerId ? players.find(p => p.id === playerId) || null : null;
+                      setTeam2Player1(player);
+                      setWinnerTeam(null);
+                    }}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                  >
+                    <option value="" className="text-gray-500">Select Player 1</option>
+                    {players
+                      .filter(player => {
+                        if (selectedGroup === 'ALL') return true;
+                        return player.group === selectedGroup;
+                      })
+                      .filter(player => {
+                        // Exclude players already selected in other positions
+                        const selectedIds = [
+                          team1Player1?.id,
+                          team1Player2?.id,
+                          team2Player2?.id
+                        ].filter(id => id !== undefined);
+                        return !selectedIds.includes(player.id);
+                      })
+                      .map((player) => (
+                        <option key={player.id} value={player.id} className="text-gray-900">
+                          {player.name} (MMR: {player.mmr})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                
+                {matchType === 'doubles' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Player 2</label>
+                    <select
+                      value={team2Player2?.id || ''}
+                      onChange={(e) => {
+                        const playerId = e.target.value ? Number(e.target.value) : null;
+                        const player = playerId ? players.find(p => p.id === playerId) || null : null;
+                        setTeam2Player2(player);
+                        setWinnerTeam(null);
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                    >
+                      <option value="" className="text-gray-500">Select Player 2</option>
+                      {players
+                        .filter(player => {
+                          if (selectedGroup === 'ALL') return true;
+                          return player.group === selectedGroup;
+                        })
+                        .filter(player => {
+                          // Exclude players already selected in other positions
+                          const selectedIds = [
+                            team1Player1?.id,
+                            team1Player2?.id,
+                            team2Player1?.id
+                          ].filter(id => id !== undefined);
+                          return !selectedIds.includes(player.id);
+                        })
+                        .map((player) => (
+                          <option key={player.id} value={player.id}>
+                            {player.name} (MMR: {player.mmr})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {/* Match Preview */}
-        {team1 && team2 && (
+        {team1MMR && team2MMR && (
           <div className="bg-gray-50 p-4 rounded-lg mb-6">
             <h4 className="font-medium text-gray-900 mb-3">Match Preview</h4>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div className="text-center">
-                <h5 className="font-medium text-gray-900">{matchType === 'singles' ? 'Player 1' : 'Team 1'}</h5>
-                <p className="text-sm text-gray-900 font-medium">{getTeamDisplayName(team1)}</p>
-                <p className="text-lg font-semibold text-blue-600">MMR: {team1.team_mmr}</p>
+                <h5 className="font-medium text-gray-900">Team 1</h5>
+                <p className="text-sm text-gray-900 font-medium">
+                  {matchType === 'singles' 
+                    ? team1Player1?.name 
+                    : `${team1Player1?.name} & ${team1Player2?.name}`
+                  }
+                </p>
+                <p className="text-lg font-semibold text-blue-600">MMR: {team1MMR}</p>
                 {matchStats && (
                   <p className="text-sm text-gray-600">
                     Win Probability: {Math.round(matchStats.team1WinProb * 100)}%
@@ -690,9 +898,14 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
               </div>
               
               <div className="text-center">
-                <h5 className="font-medium text-gray-900">{matchType === 'singles' ? 'Player 2' : 'Team 2'}</h5>
-                <p className="text-sm text-gray-900 font-medium">{getTeamDisplayName(team2)}</p>
-                <p className="text-lg font-semibold text-red-600">MMR: {team2.team_mmr}</p>
+                <h5 className="font-medium text-gray-900">Team 2</h5>
+                <p className="text-sm text-gray-900 font-medium">
+                  {matchType === 'singles' 
+                    ? team2Player1?.name 
+                    : `${team2Player1?.name} & ${team2Player2?.name}`
+                  }
+                </p>
+                <p className="text-lg font-semibold text-red-600">MMR: {team2MMR}</p>
                 {matchStats && (
                   <p className="text-sm text-gray-600">
                     Win Probability: {Math.round((1 - matchStats.team1WinProb) * 100)}%
@@ -808,21 +1021,26 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
         )}
 
         {/* Winner Selection for Regular Teams */}
-        {team1 && team2 && !randomTeam1 && !randomTeam2 && (
+        {team1MMR && team2MMR && !randomTeam1 && !randomTeam2 && (
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-3">Select Winner</label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                onClick={() => setWinnerTeam(team1.id)}
+                onClick={() => setWinnerTeam(1)}
                 className={`p-4 rounded-lg border-2 transition-colors ${
-                  winnerTeam === team1.id
+                  winnerTeam === 1
                     ? 'border-green-500 bg-green-50 text-green-900'
                     : 'border-gray-200 hover:border-gray-300 text-gray-700'
                 }`}
               >
-                <div className="font-medium">{getTeamDisplayName(team1)}</div>
-                <div className="text-sm opacity-75">MMR: {team1.team_mmr}</div>
-                {winnerTeam === team1.id && matchStats && (
+                <div className="font-medium">
+                  {matchType === 'singles' 
+                    ? team1Player1?.name 
+                    : `${team1Player1?.name} & ${team1Player2?.name}`
+                  }
+                </div>
+                <div className="text-sm opacity-75">MMR: {team1MMR}</div>
+                {winnerTeam === 1 && matchStats && (
                   <div className="text-sm mt-2 text-green-700">
                     MMR Change: +{matchStats.mmrPreview.winnerChange}
                   </div>
@@ -830,16 +1048,21 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
               </button>
               
               <button
-                onClick={() => setWinnerTeam(team2.id)}
+                onClick={() => setWinnerTeam(2)}
                 className={`p-4 rounded-lg border-2 transition-colors ${
-                  winnerTeam === team2.id
+                  winnerTeam === 2
                     ? 'border-green-500 bg-green-50 text-green-900'
                     : 'border-gray-200 hover:border-gray-300 text-gray-700'
                 }`}
               >
-                <div className="font-medium">{getTeamDisplayName(team2)}</div>
-                <div className="text-sm opacity-75">MMR: {team2.team_mmr}</div>
-                {winnerTeam === team2.id && matchStats && (
+                <div className="font-medium">
+                  {matchType === 'singles' 
+                    ? team2Player1?.name 
+                    : `${team2Player1?.name} & ${team2Player2?.name}`
+                  }
+                </div>
+                <div className="text-sm opacity-75">MMR: {team2MMR}</div>
+                {winnerTeam === 2 && matchStats && (
                   <div className="text-sm mt-2 text-green-700">
                     MMR Change: +{matchStats.mmrPreview.winnerChange}
                   </div>
@@ -860,7 +1083,8 @@ export default function MatchRecorder({ onMatchRecorded, refreshKey }: MatchReco
           disabled={
             loading || 
             (!winnerTeam) || 
-            (!(randomTeam1 && randomTeam2) && !(randomPlayer1 && randomPlayer2) && (!selectedTeam1 || !selectedTeam2))
+            (!(randomTeam1 && randomTeam2) && !(randomPlayer1 && randomPlayer2) && 
+             (matchType === 'singles' ? (!team1Player1 || !team2Player1) : (!team1Player1 || !team1Player2 || !team2Player1 || !team2Player2)))
           }
           className="w-full px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
         >
